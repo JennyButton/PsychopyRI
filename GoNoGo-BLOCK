@@ -1,0 +1,178 @@
+from psychopy import visual, core, event, data, gui
+import random
+import pandas as pd
+import os
+
+# Experiment setup: Ask for Participant ID
+exp_info = {'Participant': ''}
+dlg = gui.DlgFromDict(exp_info)
+if not dlg.OK:
+    core.quit()
+
+# Create a data folder if it doesn't exist
+if not os.path.exists("data"):
+    os.makedirs("data")
+
+# Save data file
+filename = f"data/{exp_info['Participant']}_BlockGoNoGo_{data.getDateStr()}.csv"
+
+# PsychoPy window setup
+win = visual.Window([800, 600], color="black", units="pix", fullscr=False)
+
+# Define shape vertices manually
+square_vertices = [[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5]]
+triangle_vertices = [[-0.5, -0.5], [0.5, -0.5], [0.0, 0.5]]
+
+# Instructions for the block design task
+instructions = """
+You will complete multiple blocks of the Go/No-Go task.
+
+Each block consists of a series of trials. Press the SPACE BAR only when you see the RED SQUARE.
+
+There will be rest periods between blocks.
+
+Press SPACE to begin.
+"""
+
+# Display instructions
+instruction_text = visual.TextStim(win, text=instructions, color="white", pos=(0, 0), height=24, wrapWidth=800)
+instruction_text.draw()
+win.flip()
+event.waitKeys(keyList=["space"])  # Wait for space to start task
+
+event.clearEvents()  # Clear key presses before task starts
+
+# Debug: Confirm task is proceeding
+print("Task Started: Proceeding to Blocked Trials")
+
+# Feedback text placeholder
+feedback_text = visual.TextStim(win, text="", color="white", pos=(0, -200), height=24)
+
+# Function to run a single block
+def run_block(trial_list, block_num):
+    trial_clock = core.Clock()
+    results = []
+
+    # Start Block Message
+    block_text = visual.TextStim(win, text=f"Block {block_num} Starting...", color="white", pos=(0, 0), height=24)
+    block_text.draw()
+    win.flip()
+    core.wait(2)  # Short delay before block starts
+
+    for trial in trial_list:
+        trial_clock.reset()
+
+        # Escape key detection (before stimulus is drawn)
+        if "escape" in event.getKeys():
+            print(f"Escape Key Pressed - Exiting Task at Block {block_num}")
+            win.close()
+            core.quit()
+
+        # Select the correct stimulus type
+        if trial["shape"] == "square":
+            stim = visual.ShapeStim(win, vertices=square_vertices, size=100, fillColor=trial["color"], lineColor=trial["color"])
+        elif trial["shape"] == "triangle":
+            stim = visual.ShapeStim(win, vertices=triangle_vertices, size=100, fillColor=trial["color"], lineColor=trial["color"])
+        elif trial["shape"] == "circle":
+            stim = visual.Circle(win, radius=50, fillColor=trial["color"], lineColor=trial["color"])
+
+        # Show stimulus for 100ms
+        stim.draw()
+        win.flip()
+        core.wait(0.1)
+
+        # Response collection & Escape detection
+        event.clearEvents()
+        resp = None
+        rt = None
+        correct = None
+
+        response_window = core.CountdownTimer(1)
+        while response_window.getTime() > 0:
+            keys = event.getKeys(timeStamped=trial_clock)
+
+            # Check if Escape key is pressed
+            if "escape" in [k[0] for k in keys]:
+                print(f"Escape Key Pressed - Exiting Task at Block {block_num}")
+                win.close()
+                core.quit()
+
+            if keys:
+                key, rt = keys[0]
+                if key == "space":
+                    resp = "response"
+                    break
+
+        # Determine correctness
+        if trial["type"] == "go" and resp == "response":
+            correct = 1
+            feedback_text.text = "Correct!"
+        elif trial["type"] == "nogo" and resp is None:
+            correct = 1
+            feedback_text.text = "Correct!"
+        else:
+            correct = 0
+            feedback_text.text = "Incorrect!"
+
+        # Show feedback
+        feedback_text.draw()
+        win.flip()
+        core.wait(0.3)
+
+        # Store trial results
+        results.append([block_num, trial["type"], trial["shape"], trial["color"], resp, rt, correct])
+
+    # Rest Period After Block
+    rest_text = visual.TextStim(win, text=f"Rest Period\nBlock {block_num} Completed\nTake a short break.", 
+                                color="white", pos=(0, 0), height=24)
+    rest_text.draw()
+    win.flip()
+    core.wait(15)  # fNIRS baseline recovery
+
+    return results
+
+# Define Blocked Trials
+num_blocks = 10
+trials_per_block = 20  # Each block has 20 trials
+
+# Define main task stimuli
+go_stim = {"type": "go", "shape": "square", "color": "red"}
+no_go_stimuli = [
+    {"type": "nogo", "shape": "triangle", "color": "red"},  # Red non-square
+    {"type": "nogo", "shape": "square", "color": random.choice(["green", "blue", "yellow"])},  # Non-red square
+    {"type": "nogo", "shape": "circle", "color": random.choice(["green", "blue", "yellow"])}  # Non-red, non-square
+]
+
+# Run Each Block
+all_results = []
+for block in range(1, num_blocks + 1):
+    num_go_trials = int(0.7 * trials_per_block)  # 70% Go trials
+    num_no_go_each = int(0.1 * trials_per_block)  # 10% per No-Go category
+
+    # Generate trials for the block
+    block_trials = [go_stim] * num_go_trials
+    for stim in no_go_stimuli:
+        block_trials += [stim] * num_no_go_each
+
+    random.shuffle(block_trials)  # Shuffle trials within the block
+
+    # Run the block and collect results
+    block_results = run_block(block_trials, block)
+    all_results.extend(block_results)
+
+# Debug: Confirm task is completed
+print("All Blocks Completed")
+
+# Save Data
+df = pd.DataFrame(all_results, columns=["Block", "Type", "Shape", "Color", "Response", "RT", "Correct"])
+df.to_csv(filename, index=False)
+
+# Experiment Complete Message
+end_text = visual.TextStim(win, text="Task Complete! Thank you for participating.", color="white", pos=(0, 0), height=24, wrapWidth=800)
+end_text.draw()
+win.flip()
+core.wait(2)
+
+# Close PsychoPy
+win.close()
+core.quit()
