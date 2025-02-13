@@ -1,0 +1,150 @@
+from psychopy import visual, core, event, data, gui
+import random
+import pandas as pd
+import os
+
+# Experiment setup: Ask for Participant ID
+exp_info = {'Participant': ''}
+dlg = gui.DlgFromDict(exp_info)
+if not dlg.OK:
+    core.quit()
+
+# Create a data folder if it doesn't exist
+if not os.path.exists("data"):
+    os.makedirs("data")
+
+# Save data file
+filename = f"data/{exp_info['Participant']}_GoNoGo_{data.getDateStr()}.csv"
+
+# PsychoPy window setup
+win = visual.Window([800, 600], color="black", units="pix", fullscr=False)
+
+# Define shape vertices manually
+square_vertices = [[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5]]
+triangle_vertices = [[-0.5, -0.5], [0.5, -0.5], [0.0, 0.5]]
+
+# Instructions for the task
+instructions = """
+Sit in a comfortable position and stay as still as possible throughout the task. 
+Only press the SPACE BAR when you see the RED SQUARE. 
+
+Press SPACE to begin.
+"""
+
+# Display instructions
+instruction_text = visual.TextStim(win, text=instructions, color="white", pos=(0, 0), height=24, wrapWidth=800)
+instruction_text.draw()
+win.flip()
+event.waitKeys(keyList=["space"])  # FIX: Wait for space to start task
+
+event.clearEvents()  # FIX: Clear any accidental key presses before task starts
+
+# Debug: Confirm task is proceeding
+print("Task Started: Proceeding to Main Task")
+
+# Feedback text placeholder
+feedback_text = visual.TextStim(win, text="", color="white", pos=(0, -200), height=24)
+
+# Function to run main trials
+def run_trials(trial_list):
+    trial_clock = core.Clock()  # Define trial clock
+
+    for trial in trial_list:
+        trial_clock.reset()
+
+        # Escape key detection (before stimulus is drawn)
+        if "escape" in event.getKeys():
+            print("Escape Key Pressed - Exiting Task")
+            win.close()
+            core.quit()
+
+        # Select the correct stimulus type
+        if trial["shape"] == "square":
+            stim = visual.ShapeStim(win, vertices=square_vertices, size=100, fillColor=trial["color"], lineColor=trial["color"])
+        elif trial["shape"] == "triangle":
+            stim = visual.ShapeStim(win, vertices=triangle_vertices, size=100, fillColor=trial["color"], lineColor=trial["color"])
+        elif trial["shape"] == "circle":
+            stim = visual.Circle(win, radius=50, fillColor=trial["color"], lineColor=trial["color"])
+
+        # Show stimulus for 100ms
+        stim.draw()
+        win.flip()
+        core.wait(0.1)
+
+        # Response collection & Escape detection
+        event.clearEvents()
+        resp = None
+        rt = None
+        correct = None
+
+        response_window = core.CountdownTimer(1)
+        while response_window.getTime() > 0:
+            keys = event.getKeys(timeStamped=trial_clock)
+
+            # Check if Escape key is pressed
+            if "escape" in [k[0] for k in keys]:  # Extract key from timestamped tuple
+                print("Escape Key Pressed - Exiting Task")
+                win.close()
+                core.quit()
+
+            if keys:
+                key, rt = keys[0]
+                if key == "space":
+                    resp = "response"
+                    break
+
+        # Determine correctness
+        if trial["type"] == "go" and resp == "response":
+            correct = 1
+            feedback_text.text = "Correct!"
+        elif trial["type"] == "nogo" and resp is None:
+            correct = 1
+            feedback_text.text = "Correct!"
+        else:
+            correct = 0
+            feedback_text.text = "Incorrect!"
+
+        # Show feedback
+        feedback_text.draw()
+        win.flip()
+        core.wait(0.3)
+
+# Define Main Trials
+num_trials = 100
+num_go_trials = int(0.7 * num_trials)
+num_no_go_each = int(0.1 * num_trials)
+
+# Define main task stimuli
+go_stim = {"type": "go", "shape": "square", "color": "red"}
+no_go_stimuli = [
+    {"type": "nogo", "shape": "triangle", "color": "red"},  # Red non-square
+    {"type": "nogo", "shape": "square", "color": random.choice(["green", "blue", "yellow"])},  # Non-red square
+    {"type": "nogo", "shape": "circle", "color": random.choice(["green", "blue", "yellow"])}  # Non-red, non-square
+]
+
+# Generate main task trials
+trials = [go_stim] * num_go_trials
+for stim in no_go_stimuli:
+    trials += [stim] * num_no_go_each
+
+random.shuffle(trials)  # Shuffle trial order
+
+# Run Main Task
+run_trials(trials)
+
+# Debug: Confirm main task is completed
+print("Main Task Completed")
+
+# Save Data
+df = pd.DataFrame(trials)
+df.to_csv(filename, index=False)
+
+# Experiment Complete Message
+end_text = visual.TextStim(win, text="Task Complete! Thank you for participating.", color="white", pos=(0, 0), height=24, wrapWidth=800)
+end_text.draw()
+win.flip()
+core.wait(2)
+
+# Close PsychoPy
+win.close()
+core.quit()
